@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fairfax elementary search</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root { color-scheme: light; --navy: #1a4d8c; --ink: #1c2430; --muted: #5c6b7a; --line: #d5dde6; --bg: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 system-ui, Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+    header { padding: 16px 20px 8px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p { margin: 0; color: var(--muted); max-width: 78ch; }
+    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 12px 20px 24px; }
+    .panel, .map-wrap, table { background: #fff; border: 1px solid var(--line); }
+    .panel { padding: 12px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--line); }
+    .stat { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .stat b { display: block; font-size: 22px; color: var(--navy); }
+    #map { height: 520px; }
+    .legend { background: #fff; border: 1px solid var(--line); padding: 8px 10px; font-size: 11px; line-height: 1.25; color: var(--muted); }
+    .bi-grid { display: grid; grid-template-columns: repeat(3, 18px); gap: 2px; margin: 4px 0; }
+    .bi-grid i { display: block; width: 18px; height: 18px; }
+    select { width: 100%; font: inherit; padding: 8px; border: 1px solid var(--line); background: #fff; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: pointer; }
+    tr.pick { background: #e7f0fa; }
+    .tabs { display: flex; gap: 8px; margin-top: 12px; }
+    .tabs button { font: inherit; padding: 8px 12px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+    .tabs button.on { background: #1a4d8c; color: #fff; border-color: #1a4d8c; }
+    .note { font-size: 12px; color: var(--muted); padding: 8px 20px 20px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Where a $180k household can still buy in Fairfax</h1>
+    <p>Elementary boundaries from FCPS. Prices are the most recent sale of single-family detached houses only. Drive zones are typical times from 4000 Arlington Blvd.</p>
+  </header>
+  <div class="layout">
+    <form class="panel" id="controls">
+      <label>Gross income</label>
+      <input id="income" type="number" value="180000" step="5000" />
+      <label>Down payment (equity)</label>
+      <input id="down" type="number" value="200000" step="5000" />
+      <label>Mortgage rate %</label>
+      <input id="rate" type="number" value="6.5" step="0.125" />
+      <label>Housing budget, share of gross</label>
+      <input id="share" type="number" value="28" step="1" />
+      <label>Minimum rating <span id="minRatingOut">2</span> <span style="font-weight:400">Dogwood is 1</span></label>
+      <input id="minRating" type="range" min="1" max="10" value="2" />
+      <label>Max drive to 4000 Arlington Blvd (minutes)</label>
+      <input id="commute" type="number" value="45" step="5" />
+      <label>Second variable</label>
+      <select id="axis">
+        <option value="p75">Upper quartile</option>
+        <option value="median">Median sale</option>
+        <option value="pct800">Share of sales ≤ $800k</option>
+      </select>
+      <label><span id="priceLabel">Max upper quartile</span> <span id="priceOut">$1,000,000</span></label>
+      <input id="priceCut" type="range" min="500000" max="2500000" step="25000" value="1000000" />
+      <label>Max list price <span id="listOut">$1,000,000</span></label>
+      <input id="listCut" type="range" min="400000" max="2500000" step="25000" value="1000000" />
+      <div class="stat"><span>Payment ceiling</span><b id="payment">—</b></div>
+      <div class="stat"><span>Max purchase price</span><b id="maxPrice">—</b></div>
+      <div class="stat"><span id="countLabel">Schools that pass</span><b id="count">—</b></div>
+    </form>
+    <div>
+      <div class="map-wrap"><div id="map"></div></div>
+      <div class="tabs">
+        <button type="button" id="tabSchools" class="on">Schools</button>
+        <button type="button" id="tabHouses">Houses for sale</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th data-k="rating">Rating</th>
+            <th data-k="name">Elementary</th>
+            <th data-k="p75">Upper quartile</th>
+            <th data-k="median">Median sale</th>
+            <th data-k="pct800">Sales ≤ $800k</th>
+            <th data-k="toArlington">4000 Arlington Blvd</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+  <p class="note" id="source"></p>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const money = (n) => n == null ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+    const TAX = 0.01125;
+    const INS = 200;
+
+    function maxPrice(monthly, down, annualRate) {
+      const r = annualRate / 100 / 12;
+      const factor = (r * (1 + r) ** 360) / ((1 + r) ** 360 - 1);
+      const room = monthly - INS + factor * down;
+      return Math.max(0, room / (factor + TAX / 12));
+    }
+
+    let schools = [];
+    let listings = [];
+    let sortKey = "rating";
+    let tableMode = "schools";
+    let map, boundaries, listingLayer, legendDiv;
+
+    function inRing(x, y, ring) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    }
+
+    function listingInPassingSchool(listing) {
+      for (const s of schools) {
+        if (!passes(s)) continue;
+        for (const ring of s.rings || []) {
+          if (inRing(listing.lon, listing.lat, ring)) return true;
+        }
+      }
+      return false;
+    }
+
+    // Columns are rating (low → high). Rows in the array are affordability (low → high).
+    const PALETTE = [
+      ["#9b2c2c", "#d06a62", "#f4c7c3"],
+      ["#7a5428", "#c4a15a", "#f0e0a8"],
+      ["#145c32", "#3d8f55", "#b7e4b0"],
+    ];
+
+    function ratingBin(rating) {
+      if (rating == null) return null;
+      if (rating <= 3) return 0;
+      if (rating <= 7) return 1;
+      return 2;
+    }
+
+    function metricValue(s, key) {
+      if (key === "pct800") return s.n ? s.under800 / s.n : null;
+      return s[key];
+    }
+
+    function tercileCuts(key) {
+      const vals = schools.map((s) => metricValue(s, key)).filter((v) => v != null).sort((a, b) => a - b);
+      const at = (p) => vals[Math.min(vals.length - 1, Math.floor(vals.length * p))];
+      return [at(1 / 3), at(2 / 3)];
+    }
+
+    function affordBin(value, cuts, higherIsBetter) {
+      if (value == null) return null;
+      const raw = value <= cuts[0] ? 0 : value <= cuts[1] ? 1 : 2;
+      return higherIsBetter ? raw : 2 - raw;
+    }
+
+    function fillFor(s, key, cuts) {
+      const r = ratingBin(s.rating);
+      const a = affordBin(metricValue(s, key), cuts, key === "pct800");
+      if (r == null || a == null) return "#d5dde6";
+      return PALETTE[r][a];
+    }
+
+    function pricePasses(s) {
+      const key = document.getElementById("axis").value;
+      const cut = +document.getElementById("priceCut").value;
+      const v = metricValue(s, key);
+      if (v == null) return false;
+      return key === "pct800" ? v >= cut / 100 : v <= cut;
+    }
+
+    function passes(s) {
+      const min = +document.getElementById("minRating").value;
+      const commute = +document.getElementById("commute").value;
+      return s.rating != null && s.rating >= min && s.toArlington != null && s.toArlington <= commute && pricePasses(s);
+    }
+
+    function syncPriceControl() {
+      const key = document.getElementById("axis").value;
+      const slider = document.getElementById("priceCut");
+      const labels = { p75: "Max upper quartile", median: "Max median sale", pct800: "Min share of sales ≤ $800k" };
+      document.getElementById("priceLabel").textContent = labels[key];
+      if (key === "pct800") {
+        slider.min = 0;
+        slider.max = 100;
+        slider.step = 5;
+        slider.value = 40;
+      } else {
+        slider.min = 500000;
+        slider.max = 2500000;
+        slider.step = 25000;
+        slider.value = 1000000;
+      }
+      document.getElementById("priceOut").textContent = key === "pct800" ? slider.value + "%" : money(+slider.value);
+    }
+
+    function visible() {
+      const dir = sortKey === "rating" ? -1 : 1;
+      return schools
+        .filter(passes)
+        .sort((a, b) => {
+          const av = metricValue(a, sortKey);
+          const bv = metricValue(b, sortKey);
+          return av > bv ? dir : av < bv ? -dir : 0;
+        });
+    }
+
+    function shownListings() {
+      const cap = +document.getElementById("listCut").value;
+      const seen = new Set();
+      return listings
+        .filter((h) => {
+          const key = h.url || h.address;
+          if (seen.has(key) || h.price > cap || !listingInPassingSchool(h)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => a.price - b.price);
+    }
+
+    function draw() {
+      const monthly = (+document.getElementById("income").value / 12) * (+document.getElementById("share").value / 100);
+      const cap = maxPrice(monthly, +document.getElementById("down").value, +document.getElementById("rate").value);
+      document.getElementById("payment").textContent = money(monthly) + "/mo";
+      document.getElementById("maxPrice").textContent = money(cap);
+      const head = document.querySelector("thead tr");
+      document.getElementById("countLabel").textContent = tableMode === "houses" ? "Houses for sale" : "Schools that pass";
+      if (tableMode === "houses") {
+        const rows = shownListings();
+        document.getElementById("count").textContent = rows.length;
+        head.innerHTML = "<th>Price</th><th>Address</th><th>Beds</th><th>Baths</th><th></th>";
+        document.getElementById("rows").innerHTML = rows.map((h) =>
+          `<tr data-lat="${h.lat}" data-lon="${h.lon}"><td>${money(h.price)}</td><td>${h.address}</td><td>${h.beds ?? "—"}</td><td>${h.baths ?? "—"}</td><td>${h.url ? `<a href="${h.url}" target="_blank" rel="noopener">Redfin</a>` : ""}</td></tr>`
+        ).join("");
+        return;
+      }
+      const rows = visible();
+      document.getElementById("count").textContent = rows.length;
+      head.innerHTML = `<th data-k="rating">Rating</th><th data-k="name">Elementary</th><th data-k="p75">Upper quartile</th><th data-k="median">Median sale</th><th data-k="pct800">Sales ≤ $800k</th><th data-k="toArlington">4000 Arlington Blvd</th>`;
+      document.getElementById("rows").innerHTML = rows.map((s) =>
+        `<tr data-name="${s.name}"><td>${s.rating ?? "—"}</td><td>${s.name}</td><td>${money(s.p75)}</td><td>${money(s.median)}</td><td>${s.n ? Math.round(100 * s.under800 / s.n) : "—"}% (${s.under800}/${s.n})</td><td>${s.toArlington ?? "—"} min</td></tr>`
+      ).join("");
+    }
+
+    function drawBoundaries() {
+      const key = document.getElementById("axis").value;
+      const cuts = tercileCuts(key);
+      const higherIsBetter = key === "pct800";
+      boundaries.clearLayers();
+      for (const s of schools) {
+        const latlngs = (s.rings || []).map((ring) => ring.map(([lon, lat]) => [lat, lon]));
+        const pct = s.n ? Math.round(100 * s.under800 / s.n) : null;
+        const look = passes(s);
+        L.polygon(latlngs, {
+          color: look ? "#1c2430" : "#c5ced6",
+          weight: look ? 1.25 : 0,
+          fillColor: fillFor(s, key, cuts),
+          fillOpacity: look ? 0.85 : 0.12,
+        }).bindTooltip(
+          `${s.name}<br>Rating ${s.rating ?? "—"}/10<br>Upper quartile ${money(s.p75)}<br>Median ${money(s.median)}<br>Sales ≤ $800k ${pct == null ? "—" : pct + "%"} (${s.under800}/${s.n})<br>${s.toArlington ?? "—"} min to 4000 Arlington Blvd`
+        ).addTo(boundaries);
+      }
+      const edge = higherIsBetter
+        ? [`≤ ${Math.round(cuts[0] * 100)}%`, `≥ ${Math.round(cuts[1] * 100)}%`]
+        : [`≥ ${money(cuts[1])}`, `≤ ${money(cuts[0])}`];
+      legendDiv.innerHTML =
+        `<div>Higher rating →</div>` +
+        `<div class="bi-grid">` +
+        [2, 1, 0].map((a) => [0, 1, 2].map((r) => `<i style="background:${PALETTE[r][a]}"></i>`).join("")).join("") +
+        `</div>` +
+        `<div>Top row, more affordable: ${edge[1]}</div>` +
+        `<div>Bottom row, less affordable: ${edge[0]}</div>` +
+        `<div>Faded areas miss a slider. Dogwood is a 1.</div>` +
+        `<div style="margin-top:6px"><span style="color:#0f766e">— 15 min</span> <span style="color:#1a4d8c">— 30 min</span> <span style="color:#d97706">— 45 min</span></div>` +
+        `<div>Orange dots are listed houses at or under ${money(+document.getElementById("listCut").value)} inside a school that passes.</div>`;
+      drawListings();
+    }
+
+    function drawListings() {
+      if (!listingLayer) return;
+      listingLayer.clearLayers();
+      for (const h of shownListings()) {
+        L.circleMarker([h.lat, h.lon], {
+          radius: 5,
+          color: "#9a3412",
+          weight: 1,
+          fillColor: "#f97316",
+          fillOpacity: 0.95,
+        }).bindTooltip(`${money(h.price)}<br>${h.address}<br>${h.beds ?? "—"} bd, ${h.baths ?? "—"} ba`)
+          .on("click", () => { if (h.url) window.open(h.url, "_blank"); })
+          .addTo(listingLayer);
+      }
+    }
+
+    document.getElementById("controls").addEventListener("input", (e) => {
+      if (e.target.id === "minRating") document.getElementById("minRatingOut").textContent = e.target.value;
+      if (e.target.id === "axis") syncPriceControl();
+      if (e.target.id === "priceCut") {
+        const key = document.getElementById("axis").value;
+        document.getElementById("priceOut").textContent = key === "pct800" ? e.target.value + "%" : money(+e.target.value);
+      }
+      if (e.target.id === "listCut") {
+        document.getElementById("listOut").textContent = money(+e.target.value);
+        drawListings();
+        if (tableMode === "houses") draw();
+        return;
+      }
+      if (e.target.id === "minRating" || e.target.id === "commute" || e.target.id === "axis" || e.target.id === "priceCut") drawBoundaries();
+      draw();
+    });
+    document.querySelector("thead").addEventListener("click", (e) => {
+      const k = e.target.dataset.k;
+      if (!k) return;
+      sortKey = k;
+      draw();
+    });
+    document.getElementById("rows").addEventListener("click", (e) => {
+      if (e.target.closest("a")) return;
+      const tr = e.target.closest("tr");
+      if (!tr) return;
+      if (tr.dataset.lat) {
+        map.setView([+tr.dataset.lat, +tr.dataset.lon], 15);
+        return;
+      }
+      const s = schools.find((x) => x.name === tr.dataset.name);
+      if (s) map.setView([s.lat, s.lon], 13);
+    });
+    document.querySelector(".tabs").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      tableMode = btn.id === "tabHouses" ? "houses" : "schools";
+      document.getElementById("tabSchools").classList.toggle("on", tableMode === "schools");
+      document.getElementById("tabHouses").classList.toggle("on", tableMode === "houses");
+      draw();
+    });
+
+    map = L.map("map").setView([38.84, -77.22], 11);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap" }).addTo(map);
+    const driveRings = L.layerGroup().addTo(map);
+    boundaries = L.layerGroup().addTo(map);
+    listingLayer = L.layerGroup().addTo(map);
+    const legend = L.control({ position: "bottomright" });
+    legend.onAdd = () => {
+      legendDiv = L.DomUtil.create("div", "legend");
+      return legendDiv;
+    };
+    legend.addTo(map);
+
+    const RING_STYLE = {
+      45: { color: "#d97706", fillOpacity: 0.08 },
+      30: { color: "#1a4d8c", fillOpacity: 0.1 },
+      15: { color: "#0f766e", fillOpacity: 0.16 },
+    };
+
+    fetch("data/drive-rings.json").then((r) => r.json()).then((rings) => {
+      const star = L.divIcon({
+        className: "",
+        html: '<div style="color:#f5c518;font-size:28px;line-height:28px;-webkit-text-stroke:1px #1c2430">★</div>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+      L.marker([rings.lat, rings.lon], { icon: star, zIndexOffset: 1000 })
+        .bindTooltip(rings.label)
+        .addTo(driveRings);
+      for (const f of rings.features) {
+        const minutes = f.properties.minutes;
+        const style = RING_STYLE[minutes];
+        const latlngs = f.geometry.coordinates[0].map(([lon, lat]) => [lat, lon]);
+        L.polygon(latlngs, {
+          color: style.color,
+          weight: 2,
+          fillColor: style.color,
+          fillOpacity: style.fillOpacity,
+        }).bindTooltip(minutes + " min from " + rings.label).addTo(driveRings);
+      }
+    });
+
+    fetch("data/listings.json").then((r) => r.json()).then((data) => {
+      listings = data.listings || [];
+      if (schools.length) drawListings();
+    });
+
+    fetch("data/schools.json").then((r) => r.json()).then((data) => {
+      schools = data.schools;
+      document.getElementById("source").textContent = data.ratingNote + " " + data.salesNote + " " + (data.arlingtonNote || "") + " " + data.commuteNote + " Snapshot " + data.generated + ".";
+      drawBoundaries();
+      draw();
+    });
+  </script>
+</body>
+</html>
