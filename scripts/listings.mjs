@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs";
 const REGIONS = [
   [2965, "Fairfax County"],
   [2943, "Arlington County"],
+  [2989, "Loudoun County"],
 ];
 
 async function regionHomes(id) {
@@ -51,7 +52,7 @@ writeFileSync(
   "data/listings.json",
   JSON.stringify({
     generated: new Date().toISOString().slice(0, 10),
-    note: "Detached houses listed on Redfin in Fairfax and Arlington counties. Snapshot, rerun node scripts/listings.mjs to refresh.",
+    note: "Detached houses listed on Redfin in Fairfax, Arlington, and Loudoun counties. Snapshot, rerun node scripts/listings.mjs to refresh.",
     listings,
   })
 );

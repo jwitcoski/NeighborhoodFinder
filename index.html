@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Fairfax elementary search</title>
+  <title>Elementary search</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     :root { color-scheme: light; --navy: #1a4d8c; --ink: #1c2430; --muted: #5c6b7a; --line: #d5dde6; --bg: #f4f6f8; }
@@ -37,8 +37,8 @@
 </head>
 <body>
   <header>
-    <h1>Where a $180k household can still buy in Fairfax</h1>
-    <p>Elementary boundaries from FCPS. Prices are the most recent sale of single-family detached houses only. Drive zones are typical times from 4000 Arlington Blvd.</p>
+    <h1>Where a $180k household can still buy</h1>
+    <p>Elementary boundaries for Fairfax, Arlington, and Loudoun. Fairfax and Arlington prices are the most recent sale of single-family detached houses. Loudoun prices are current detached asking prices. Drive zones are typical times from 4000 Arlington Blvd.</p>
   </header>
   <div class="layout">
     <form class="panel" id="controls">
@@ -388,7 +388,7 @@
 
     fetch("data/schools.json").then((r) => r.json()).then((data) => {
       schools = data.schools;
-      document.getElementById("source").textContent = data.ratingNote + " " + data.salesNote + " " + (data.arlingtonNote || "") + " " + data.commuteNote + " Snapshot " + data.generated + ".";
+      document.getElementById("source").textContent = data.ratingNote + " " + data.salesNote + " " + (data.arlingtonNote || "") + " " + (data.loudounNote || "") + " " + data.commuteNote + " Snapshot " + data.generated + ".";
       drawBoundaries();
       draw();
     });
