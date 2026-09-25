@@ -240,11 +240,12 @@
         return;
       }
       const rows = visible();
+      const unrated = schools.filter((s) => s.rating == null);
       document.getElementById("count").textContent = rows.length;
       head.innerHTML = `<th data-k="rating">Rating</th><th data-k="name">Elementary</th><th data-k="p75">Upper quartile</th><th data-k="median">Median sale</th><th data-k="pct800">Sales ≤ $800k</th><th data-k="toArlington">4000 Arlington Blvd</th>`;
-      document.getElementById("rows").innerHTML = rows.map((s) =>
-        `<tr data-name="${s.name}"><td>${s.rating ?? "—"}</td><td>${s.name}</td><td>${money(s.p75)}</td><td>${money(s.median)}</td><td>${s.n ? Math.round(100 * s.under800 / s.n) : "—"}% (${s.under800}/${s.n})</td><td>${s.toArlington ?? "—"} min</td></tr>`
-      ).join("");
+      const schoolRow = (s) =>
+        `<tr data-name="${s.name}"${s.rating == null ? ' style="color:#8b97a3"' : ""}><td>${s.rating == null ? "NA" : s.rating}</td><td>${s.name}</td><td>${money(s.p75)}</td><td>${money(s.median)}</td><td>${s.n ? Math.round(100 * s.under800 / s.n) : "—"}% (${s.under800}/${s.n})</td><td>${s.toArlington ?? "—"} min</td></tr>`;
+      document.getElementById("rows").innerHTML = rows.map(schoolRow).join("") + unrated.map(schoolRow).join("");
     }
 
     function drawBoundaries() {
@@ -256,14 +257,15 @@
         const latlngs = (s.rings || []).map((ring) => ring.map(([lon, lat]) => [lat, lon]));
         const pct = s.n ? Math.round(100 * s.under800 / s.n) : null;
         const look = passes(s);
+        const unrated = s.rating == null;
         const loudoun = s.county === "Loudoun";
         L.polygon(latlngs, {
-          color: look ? "#1c2430" : loudoun ? "#5c6b7a" : "#c5ced6",
-          weight: look ? 1.25 : loudoun ? 1 : 0,
-          fillColor: fillFor(s, key, cuts),
-          fillOpacity: look ? 0.85 : loudoun ? 0.45 : 0.12,
+          color: unrated ? "#8b97a3" : look ? "#1c2430" : loudoun ? "#5c6b7a" : "#c5ced6",
+          weight: unrated || look ? 1.25 : loudoun ? 1 : 0,
+          fillColor: unrated ? "#d5dde6" : fillFor(s, key, cuts),
+          fillOpacity: unrated ? 0.7 : look ? 0.85 : loudoun ? 0.45 : 0.12,
         }).bindTooltip(
-          `${s.name}<br>Rating ${s.rating ?? "—"}/10<br>Upper quartile ${money(s.p75)}<br>Median ${money(s.median)}<br>Sales ≤ $800k ${pct == null ? "—" : pct + "%"} (${s.under800}/${s.n})<br>${s.toArlington ?? "—"} min to 4000 Arlington Blvd`
+          `${s.name}<br>Rating ${s.rating == null ? "NA" : s.rating + "/10"}<br>Upper quartile ${money(s.p75)}<br>Median ${money(s.median)}<br>Sales ≤ $800k ${pct == null ? "—" : pct + "%"} (${s.under800}/${s.n})<br>${s.toArlington ?? "—"} min to 4000 Arlington Blvd`
         ).addTo(boundaries);
       }
       const edge = higherIsBetter
