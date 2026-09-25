@@ -138,14 +138,22 @@ for (let i = 0; i < centers.length; i += 20) {
   json.durations[0].forEach((sec) => minutes.push(Math.round(sec / 60)));
 }
 
+function rateKey(name) {
+  return name
+    .replace(/&#0*39;|&apos;|&#x27;/gi, "")
+    .replace(/\s+elementary school.*/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 let ratings = {};
 try {
   const headers = { "User-Agent": "Mozilla/5.0" };
   const pages = [
     "https://www.publicschoolreview.com/virginia/loudoun-county/elementary",
-    "https://www.publicschoolreview.com/virginia/loudoun/tab/elementary/num/2",
+    "https://www.publicschoolreview.com/virginia/loudoun-county/tab/elementary/num/2",
   ];
-  const re = /tpl-school-link' href='[^']*'>(?:<span[^>]*><\/span>)?([^<]+)<\/a>[\s\S]{0,800}?data-rank-score="(\d+)"/g;
+  const re = /tpl-school-link[^>]*>(?:<span[^>]*><\/span>)?([^<]+)<\/a>[\s\S]{0,1200}?data-rank-score=\\?"(\d+)/g;
   for (const page of pages) {
     const res = await fetch(page, { headers });
     const body = res.headers.get("content-type")?.includes("json")
@@ -154,13 +162,14 @@ try {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(body))) {
-      ratings[titleName(m[1].replace(/ Elementary School.*/, ""))] = Number(m[2]);
+      if (!/elementary/i.test(m[1])) continue;
+      ratings[rateKey(m[1])] = Number(m[2]);
     }
   }
 } catch (err) {
   console.warn("ratings", err.message);
 }
-console.log("ratings", Object.keys(ratings).length, Object.keys(ratings).slice(0, 12).join(" | "));
+console.log("ratings", Object.keys(ratings).length);
 
 const added = schools.map((s, i) => {
   const prices = s.prices.filter((p) => p >= 200000).sort((a, b) => a - b);
@@ -171,7 +180,7 @@ const added = schools.map((s, i) => {
     hs: "Loudoun",
     lon: Math.round(lon * 10000) / 10000,
     lat: Math.round(lat * 10000) / 10000,
-    rating: ratings[s.name] ?? null,
+    rating: ratings[rateKey(s.name)] ?? null,
     rings: s.rings,
     n: prices.length,
     p25: prices.length ? prices[Math.floor(prices.length * 0.25)] : null,
@@ -184,7 +193,7 @@ const added = schools.map((s, i) => {
     toArlington: minutes[i],
     county: "Loudoun",
   };
-}).filter((s) => s.n >= 3);
+});
 
 const data = JSON.parse(readFileSync("data/schools.json", "utf8"));
 data.schools = data.schools.filter((s) => s.county !== "Loudoun").concat(added);

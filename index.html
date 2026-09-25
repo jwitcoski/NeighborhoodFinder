@@ -177,8 +177,7 @@
 
     function passes(s) {
       const min = +document.getElementById("minRating").value;
-      const commute = +document.getElementById("commute").value;
-      return s.rating != null && s.rating >= min && s.toArlington != null && s.toArlington <= commute && pricePasses(s);
+      return s.rating != null && s.rating >= min && pricePasses(s);
     }
 
     function syncPriceControl() {
@@ -257,11 +256,12 @@
         const latlngs = (s.rings || []).map((ring) => ring.map(([lon, lat]) => [lat, lon]));
         const pct = s.n ? Math.round(100 * s.under800 / s.n) : null;
         const look = passes(s);
+        const loudoun = s.county === "Loudoun";
         L.polygon(latlngs, {
-          color: look ? "#1c2430" : "#c5ced6",
-          weight: look ? 1.25 : 0,
+          color: look ? "#1c2430" : loudoun ? "#5c6b7a" : "#c5ced6",
+          weight: look ? 1.25 : loudoun ? 1 : 0,
           fillColor: fillFor(s, key, cuts),
-          fillOpacity: look ? 0.85 : 0.12,
+          fillOpacity: look ? 0.85 : loudoun ? 0.45 : 0.12,
         }).bindTooltip(
           `${s.name}<br>Rating ${s.rating ?? "—"}/10<br>Upper quartile ${money(s.p75)}<br>Median ${money(s.median)}<br>Sales ≤ $800k ${pct == null ? "—" : pct + "%"} (${s.under800}/${s.n})<br>${s.toArlington ?? "—"} min to 4000 Arlington Blvd`
         ).addTo(boundaries);
@@ -340,7 +340,7 @@
       draw();
     });
 
-    map = L.map("map").setView([38.84, -77.22], 11);
+    map = L.map("map").setView([38.95, -77.45], 10);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "&copy; OpenStreetMap" }).addTo(map);
     const driveRings = L.layerGroup().addTo(map);
     boundaries = L.layerGroup().addTo(map);
