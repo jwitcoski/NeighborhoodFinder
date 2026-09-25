@@ -259,11 +259,12 @@
         const look = passes(s);
         const unrated = s.rating == null;
         const loudoun = s.county === "Loudoun";
+        const show = look || unrated || loudoun;
         L.polygon(latlngs, {
-          color: unrated ? "#8b97a3" : look ? "#1c2430" : loudoun ? "#5c6b7a" : "#c5ced6",
-          weight: unrated || look ? 1.25 : loudoun ? 1 : 0,
-          fillColor: unrated ? "#d5dde6" : fillFor(s, key, cuts),
-          fillOpacity: unrated ? 0.7 : look ? 0.85 : loudoun ? 0.45 : 0.12,
+          color: show ? "#1c2430" : "#c5ced6",
+          weight: show ? 1.25 : 0,
+          fillColor: look ? fillFor(s, key, cuts) : "#d5dde6",
+          fillOpacity: show ? 0.85 : 0.12,
         }).bindTooltip(
           `${s.name}<br>Rating ${s.rating == null ? "NA" : s.rating + "/10"}<br>Upper quartile ${money(s.p75)}<br>Median ${money(s.median)}<br>Sales ≤ $800k ${pct == null ? "—" : pct + "%"} (${s.under800}/${s.n})<br>${s.toArlington ?? "—"} min to 4000 Arlington Blvd`
         ).addTo(boundaries);
